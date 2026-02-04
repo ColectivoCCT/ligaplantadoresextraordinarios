@@ -1,0 +1,40 @@
+@import "tailwindcss";
+@import "tailwindcss";
+
+/* 1. CONFIGURACIÓN DEL TEMA (Tailwind v4) */
+@theme {
+  --animate-float: float 4s ease-in-out infinite;
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-15px); }
+  }
+}
+
+/* 2. RESET PARA JUEGO FULLSCREEN */
+html, body, #root {
+  height: 100dvh; /* Altura dinámica para móviles */
+  width: 100vw;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Evita el scroll accidental */
+  background-color: #020617; /* Fondo oscuro base */
+  color: white;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* 3. CLASES DE UTILIDAD PARA BOTONES Y INPUTS */
+@layer components {
+  .btn-primary {
+    @apply h-14 flex items-center justify-center rounded-2xl font-black uppercase tracking-widest 
+    transition-all duration-75 active:translate-y-[4px] active:shadow-none;
+    /* Estilo por defecto verde */
+    @apply bg-emerald-600 text-white shadow-[0_6px_0_#065f46];
+  }
+
+  .game-input {
+    @apply w-full h-14 bg-white/5 border-2 border-white/10 rounded-2xl px-6 
+    text-white font-bold focus:border-emerald-500 focus:bg-white/10 
+    outline-none transition-all placeholder:text-white/30;
+  }
+}
