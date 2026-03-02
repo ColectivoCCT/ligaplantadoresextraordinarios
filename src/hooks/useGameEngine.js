@@ -60,7 +60,6 @@ export const useGameEngine = () => {
     try {
       await updateDoc(userRef, {
         drops: increment(-5),
-        forestLevel: increment(1),
         score: increment(25),
         lastUpdate: Date.now()
       });
