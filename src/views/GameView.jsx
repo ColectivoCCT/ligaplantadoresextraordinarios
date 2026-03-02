@@ -63,7 +63,21 @@ const MediterraneanTree = ({ level, yPos, zoomFactor, isRecentlyWatered = false 
       }}
     >
       {isRecentlyWatered && (
-        <div className="absolute -top-5 text-xl animate-water-drop">💧</div>
+        <div className="absolute -top-7 left-1/2 -translate-x-1/2 w-16 h-10 pointer-events-none">
+          {Array.from({ length: 10 }, (_, i) => (
+            <span
+              key={i}
+              className="absolute top-0 rounded-full bg-sky-300/90 animate-pump-drop"
+              style={{
+                left: `${8 + (i * 5)}px`,
+                width: `${3 + (i % 3)}px`,
+                height: `${5 + (i % 4)}px`,
+                animationDelay: `${i * 0.05}s`,
+                animationDuration: `${0.55 + (i % 4) * 0.08}s`
+              }}
+            />
+          ))}
+        </div>
       )}
       <div className="absolute -bottom-1 w-14 h-3 bg-black/10 rounded-[100%] blur-md" />
       <svg width="60" height="80" viewBox="0 0 120 140" className="filter drop-shadow-lg">
@@ -202,11 +216,9 @@ const GameView = ({ stats: initialStats }) => {
     if (userData.drops < 5 || isWatering) return;
 
     setIsWatering(true);
-    playSound('water');
 
     try {
       await waterForest(userData.drops, currentTribe, userData.name);
-      playSound('pop');
     } catch (error) {
       console.error(error);
       const msg = error?.code === 'permission-denied'
@@ -532,14 +544,14 @@ const GameView = ({ stats: initialStats }) => {
           30% { transform: scale(1.14); filter: drop-shadow(0 0 24px rgba(34,197,94,0.65)); }
           100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(34,197,94,0)); }
         }
-        @keyframes water-drop {
-          0% { opacity: 0; transform: translateY(-8px) scale(0.6); }
-          40% { opacity: 1; transform: translateY(0) scale(1.1); }
-          100% { opacity: 0; transform: translateY(10px) scale(0.8); }
+        @keyframes pump-drop {
+          0% { opacity: 0; transform: translateY(-2px) scale(0.75); }
+          20% { opacity: 1; }
+          100% { opacity: 0; transform: translateY(24px) scale(0.55); }
         }
         .animate-hero-drop { animation: hero-drop 0.8s ease-in-out forwards; }
         .animate-water-highlight { animation: water-highlight 0.9s ease-out; }
-        .animate-water-drop { animation: water-drop 0.9s ease-out; }
+        .animate-pump-drop { animation-name: pump-drop; animation-timing-function: ease-out; animation-fill-mode: none; opacity: 0; }
       `}} />
     </div>
   );
