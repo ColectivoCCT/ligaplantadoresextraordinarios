@@ -48,7 +48,7 @@ const seededRandom = (seed) => {
 // --- ÁRBOL CON PERSPECTIVA MEJORADA ---
 const MediterraneanTree = ({ level, yPos, zoomFactor }) => {
   const perspectiveScale = 0.35 + (Math.pow(yPos / 100, 1.5)) * 0.65;
-  const growthLevel = Math.min(level * 0.04, 1.0);
+  const growthLevel = Math.min(Math.log1p(level) * 0.22, 1.25);
   const finalScale = (perspectiveScale + growthLevel) * zoomFactor;
 
   const brightness = 75 + (yPos / 100) * 25;
@@ -226,16 +226,22 @@ const GameView = ({ stats: initialStats }) => {
       factor = Math.max(0.25, 0.6 - (numTrees - 100) * 0.001);
     }
 
-    const baseWaterPerTree = numTrees > 0 ? Math.floor(totalWater / numTrees) : 0;
-    const remainderWater = numTrees > 0 ? totalWater % numTrees : 0;
+    const levels = Array.from({ length: numTrees }, () => 1);
+
+    for (let drop = 0; drop < totalWater; drop += 1) {
+      let minIndex = 0;
+      for (let i = 1; i < levels.length; i += 1) {
+        if (levels[i] < levels[minIndex]) minIndex = i;
+      }
+      levels[minIndex] += 1;
+    }
 
     const trees = Array.from({ length: numTrees }, (_, i) => {
       const x = 5 + seededRandom(i * 105) * 90;
       const rawY = seededRandom(i * 210);
       const y = 10 + (Math.pow(rawY, 0.8)) * 85; 
 
-      const individualLevel = 1 + baseWaterPerTree + (i < remainderWater ? 1 : 0);
-      return { id: i, x, y, level: individualLevel };
+      return { id: i, x, y, level: levels[i] };
     }).sort((a, b) => a.y - b.y);
 
     return { forestTrees: trees, zoomFactor: factor };
