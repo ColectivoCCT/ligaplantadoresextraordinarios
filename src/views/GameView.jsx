@@ -206,7 +206,10 @@ const GameView = ({ stats: initialStats }) => {
       playSound('pop');
     } catch (error) {
       console.error(error);
-      alert(error.message || 'No se pudo regar el bosque.');
+      const msg = error?.code === 'permission-denied'
+        ? 'No tienes permisos para actualizar todos los datos del bosque. Tus puntos personales pueden no haberse aplicado.'
+        : (error.message || 'No se pudo regar el bosque.');
+      alert(msg);
     } finally {
       setIsWatering(false);
     }

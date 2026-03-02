@@ -58,6 +58,7 @@ export const useGameEngine = () => {
     const tribeRef = doc(db, "tribes", activeTribe);
 
     try {
+      // Primero garantizamos que el usuario siempre pueda gastar gotas y sumar puntos.
       await runTransaction(db, async (transaction) => {
         const userSnap = await transaction.get(userRef);
         if (!userSnap.exists()) throw new Error("No se encontró tu perfil de usuario.");
@@ -70,22 +71,25 @@ export const useGameEngine = () => {
           score: increment(25),
           lastUpdate: Date.now()
         });
+      });
 
-        transaction.set(tribeRef, {
+      // Estas escrituras dependen de reglas más permisivas; si fallan por permisos,
+      // no deshacemos el progreso del usuario.
+      await Promise.allSettled([
+        setDoc(tribeRef, {
           score: increment(25),
           water: increment(5),
           lastActivity: serverTimestamp()
-        }, { merge: true });
-      });
-
-      await addDoc(collection(db, "activities"), {
-        userId: user.uid,
-        userName: userName || "Alguien",
-        tribeId: activeTribe,
-        type: 'water',
-        text: 'ha regado el bosque (+25 pts)',
-        timestamp: serverTimestamp()
-      });
+        }, { merge: true }),
+        addDoc(collection(db, "activities"), {
+          userId: user.uid,
+          userName: userName || "Alguien",
+          tribeId: activeTribe,
+          type: 'water',
+          text: 'ha regado el bosque (+25 pts)',
+          timestamp: serverTimestamp()
+        })
+      ]);
 
       triggerSync();
     } catch (error) {
