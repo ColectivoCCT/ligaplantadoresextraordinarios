@@ -207,7 +207,7 @@ const GameView = ({ stats: initialStats }) => {
     } catch (error) {
       console.error(error);
       const msg = error?.code === 'permission-denied'
-        ? 'No tienes permisos para actualizar todos los datos del bosque. Tus puntos personales pueden no haberse aplicado.'
+        ? 'No tienes permisos para regar en tiempo real (usuario/tribu/actividad). No se aplicó ningún cambio. Revisa reglas de Firestore.'
         : (error.message || 'No se pudo regar el bosque.');
       alert(msg);
     } finally {
