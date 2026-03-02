@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { db, auth } from '../lib/firebase';
-import { doc, updateDoc, increment, setDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
+import { doc, updateDoc, increment, setDoc, serverTimestamp, addDoc, collection, runTransaction } from 'firebase/firestore';
 
 export const useGameEngine = () => {
   const [syncKey, setSyncKey] = useState(0);
@@ -58,18 +58,25 @@ export const useGameEngine = () => {
     const tribeRef = doc(db, "tribes", activeTribe);
 
     try {
-      await updateDoc(userRef, {
-        drops: increment(-5),
-        score: increment(25),
-        lastUpdate: Date.now()
-      });
+      await runTransaction(db, async (transaction) => {
+        const userSnap = await transaction.get(userRef);
+        if (!userSnap.exists()) throw new Error("No se encontró tu perfil de usuario.");
 
-      // MODIFICACIÓN: Añadimos 'water: increment(5)' para rastrear el riego total de la tribu
-      await setDoc(tribeRef, {
-        score: increment(25),
-        water: increment(5), // <--- CAMBIO CLAVE PARA EL BOSQUE DETERMINISTA
-        lastActivity: serverTimestamp()
-      }, { merge: true });
+        const serverDrops = Number(userSnap.data().drops || 0);
+        if (serverDrops < 5) throw new Error("Necesitas al menos 5 gotas.");
+
+        transaction.update(userRef, {
+          drops: increment(-5),
+          score: increment(25),
+          lastUpdate: Date.now()
+        });
+
+        transaction.set(tribeRef, {
+          score: increment(25),
+          water: increment(5),
+          lastActivity: serverTimestamp()
+        }, { merge: true });
+      });
 
       await addDoc(collection(db, "activities"), {
         userId: user.uid,

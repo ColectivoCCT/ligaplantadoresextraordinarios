@@ -206,6 +206,7 @@ const GameView = ({ stats: initialStats }) => {
       playSound('pop');
     } catch (error) {
       console.error(error);
+      alert(error.message || 'No se pudo regar el bosque.');
     } finally {
       setIsWatering(false);
     }
