@@ -46,7 +46,7 @@ const seededRandom = (seed) => {
 };
 
 // --- ÁRBOL CON PERSPECTIVA MEJORADA ---
-const MediterraneanTree = ({ level, yPos, zoomFactor }) => {
+const MediterraneanTree = ({ level, yPos, zoomFactor, isRecentlyWatered = false }) => {
   const perspectiveScale = 0.35 + (Math.pow(yPos / 100, 1.5)) * 0.65;
   const growthLevel = Math.min(Math.log1p(level) * 0.22, 1.25);
   const finalScale = (perspectiveScale + growthLevel) * zoomFactor;
@@ -56,12 +56,15 @@ const MediterraneanTree = ({ level, yPos, zoomFactor }) => {
 
   return (
     <div 
-      className="relative flex flex-col items-center transition-all duration-1000 ease-in-out" 
+      className={`relative flex flex-col items-center transition-all duration-1000 ease-in-out ${isRecentlyWatered ? "animate-water-highlight" : ""}`} 
       style={{ 
         transform: `scale(${finalScale})`,
         filter: `brightness(${brightness}%) saturate(${saturate}%)`
       }}
     >
+      {isRecentlyWatered && (
+        <div className="absolute -top-5 text-xl animate-water-drop">💧</div>
+      )}
       <div className="absolute -bottom-1 w-14 h-3 bg-black/10 rounded-[100%] blur-md" />
       <svg width="60" height="80" viewBox="0 0 120 140" className="filter drop-shadow-lg">
         <path d="M52 130 Q60 125 68 130 L64 90 Q60 85 56 90 Z" fill="#4a3728" />
@@ -215,7 +218,7 @@ const GameView = ({ stats: initialStats }) => {
     }
   };
 
-  const { forestTrees, zoomFactor } = useMemo(() => {
+  const { forestTrees, zoomFactor, lastWateredTreeId } = useMemo(() => {
     const numTrees = tribeData.trees || 0;
     const totalWater = tribeData.water || 0;
     
@@ -236,6 +239,10 @@ const GameView = ({ stats: initialStats }) => {
       levels[minIndex] += 1;
     }
 
+    const lastWateredTreeId = numTrees > 0 && totalWater > 0
+      ? (totalWater - 1) % numTrees
+      : null;
+
     const trees = Array.from({ length: numTrees }, (_, i) => {
       const x = 5 + seededRandom(i * 105) * 90;
       const rawY = seededRandom(i * 210);
@@ -244,7 +251,7 @@ const GameView = ({ stats: initialStats }) => {
       return { id: i, x, y, level: levels[i] };
     }).sort((a, b) => a.y - b.y);
 
-    return { forestTrees: trees, zoomFactor: factor };
+    return { forestTrees: trees, zoomFactor: factor, lastWateredTreeId };
   }, [tribeData.trees, tribeData.water]);
 
   return (
@@ -475,6 +482,7 @@ const GameView = ({ stats: initialStats }) => {
                   level={tree.level} 
                   yPos={tree.y} 
                   zoomFactor={zoomFactor}
+                  isRecentlyWatered={tree.id === lastWateredTreeId}
                 />
               </div>
             ))}
@@ -519,7 +527,19 @@ const GameView = ({ stats: initialStats }) => {
         .animate-pop-in { animation: pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
         .animate-cloud-scroll { animation: cloud-scroll 120s linear infinite; }
         .animate-fade-in-left { animation: fade-in-left 0.5s ease-out forwards; }
+        @keyframes water-highlight {
+          0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(34,197,94,0)); }
+          30% { transform: scale(1.14); filter: drop-shadow(0 0 24px rgba(34,197,94,0.65)); }
+          100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(34,197,94,0)); }
+        }
+        @keyframes water-drop {
+          0% { opacity: 0; transform: translateY(-8px) scale(0.6); }
+          40% { opacity: 1; transform: translateY(0) scale(1.1); }
+          100% { opacity: 0; transform: translateY(10px) scale(0.8); }
+        }
         .animate-hero-drop { animation: hero-drop 0.8s ease-in-out forwards; }
+        .animate-water-highlight { animation: water-highlight 0.9s ease-out; }
+        .animate-water-drop { animation: water-drop 0.9s ease-out; }
       `}} />
     </div>
   );
