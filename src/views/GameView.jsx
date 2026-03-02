@@ -87,6 +87,7 @@ const GameView = ({ stats: initialStats }) => {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
   const [showHeroAnim, setShowHeroAnim] = useState(false);
+  const [isWatering, setIsWatering] = useState(false);
   
   // Estados para el Logro
   const [showAchievementModal, setShowAchievementModal] = useState(false);
@@ -192,6 +193,22 @@ const GameView = ({ stats: initialStats }) => {
       }
       setTimeout(() => setShowHeroAnim(false), 200);
     }, 600);
+  };
+
+  const handleWaterClick = async () => {
+    if (userData.drops < 5 || isWatering) return;
+
+    setIsWatering(true);
+    playSound('water');
+
+    try {
+      await waterForest(userData.drops, currentTribe, userData.name);
+      playSound('pop');
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsWatering(false);
+    }
   };
 
   const { forestTrees, zoomFactor } = useMemo(() => {
@@ -465,11 +482,11 @@ const GameView = ({ stats: initialStats }) => {
             SEMBRAR
           </button>
           <button 
-            disabled={userData.drops < 5}
-            onClick={() => { playSound('water'); waterForest(userData.drops, currentTribe, userData.name); }} 
+            disabled={userData.drops < 5 || isWatering}
+            onClick={handleWaterClick}
             className="flex-1 max-w-[140px] h-12 bg-emerald-600 disabled:bg-slate-800 disabled:opacity-50 text-white rounded-xl font-black uppercase text-[10px]"
           >
-            REGAR
+            {isWatering ? 'REGANDO...' : 'REGAR'}
           </button>
         </div>
         {isJefe && (
