@@ -48,7 +48,7 @@ const seededRandom = (seed) => {
 // --- ÁRBOL CON PERSPECTIVA MEJORADA ---
 const MediterraneanTree = ({ level, yPos, zoomFactor, isRecentlyWatered = false }) => {
   const perspectiveScale = 0.35 + (Math.pow(yPos / 100, 1.5)) * 0.65;
-  const growthLevel = Math.min(Math.log1p(level) * 0.22, 1.25);
+  const growthLevel = Math.min(Math.pow(level, 0.42) * 0.24, 1.55);
   const finalScale = (perspectiveScale + growthLevel) * zoomFactor;
 
   const brightness = 75 + (yPos / 100) * 25;
@@ -92,6 +92,27 @@ const MediterraneanTree = ({ level, yPos, zoomFactor, isRecentlyWatered = false 
     </div>
   );
 };
+
+
+const IberianPeninsula = () => (
+  <svg viewBox="0 0 1000 700" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <linearGradient id="iberiaLand" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#14532d" />
+        <stop offset="100%" stopColor="#166534" />
+      </linearGradient>
+    </defs>
+    <path
+      d="M114 388 L126 327 L154 286 L212 242 L277 212 L365 198 L457 168 L534 142 L599 136 L667 173 L734 194 L805 228 L853 286 L865 352 L843 408 L807 466 L750 522 L673 564 L594 570 L525 552 L463 572 L387 589 L299 575 L236 546 L188 500 L148 452 Z"
+      fill="url(#iberiaLand)"
+      stroke="#86efac"
+      strokeWidth="8"
+      strokeLinejoin="round"
+      className="drop-shadow-[0_0_20px_rgba(16,185,129,0.45)]"
+    />
+    <path d="M783 531 L854 557 L847 601 L771 592 Z" fill="#15803d" stroke="#86efac" strokeWidth="6" />
+  </svg>
+);
 
 const GameView = ({ stats: initialStats }) => {
   const { plantTree, waterForest, syncKey } = useGameEngine();
@@ -230,15 +251,16 @@ const GameView = ({ stats: initialStats }) => {
     }
   };
 
-  const { forestTrees, zoomFactor, lastWateredTreeId } = useMemo(() => {
+  const { forestTrees, zoomFactor, lastWateredTreeId, viewMode, forestLevel } = useMemo(() => {
     const numTrees = tribeData.trees || 0;
     const totalWater = tribeData.water || 0;
     
-    let factor = 1.0;
-    if (numTrees > 40 && numTrees <= 100) {
-      factor = 1.0 - (numTrees - 40) * 0.0066; 
-    } else if (numTrees > 100) {
-      factor = Math.max(0.25, 0.6 - (numTrees - 100) * 0.001);
+    const forestLevel = Math.floor(numTrees / 35);
+    const viewMode = numTrees >= 180 ? 'iberia-map' : 'local-forest';
+
+    let factor = 1.08;
+    if (numTrees > 30) {
+      factor = Math.max(0.3, 1.08 - Math.log1p(numTrees - 30) * 0.15);
     }
 
     const levels = Array.from({ length: numTrees }, () => 1);
@@ -263,7 +285,7 @@ const GameView = ({ stats: initialStats }) => {
       return { id: i, x, y, level: levels[i] };
     }).sort((a, b) => a.y - b.y);
 
-    return { forestTrees: trees, zoomFactor: factor, lastWateredTreeId };
+    return { forestTrees: trees, zoomFactor: factor, lastWateredTreeId, viewMode, forestLevel };
   }, [tribeData.trees, tribeData.water]);
 
   return (
@@ -449,7 +471,7 @@ const GameView = ({ stats: initialStats }) => {
         <div className="h-full bg-emerald-500 transition-all duration-100 ease-linear" style={{ width: `${progress}%` }} />
       </div>
 
-      <main className="flex-1 relative overflow-hidden bg-gradient-to-b from-sky-400 via-sky-200 to-sky-100 min-h-0">
+      <main className={`flex-1 relative overflow-hidden min-h-0 ${viewMode === "iberia-map" ? "bg-gradient-to-b from-slate-900 via-slate-800 to-slate-700" : "bg-gradient-to-b from-sky-400 via-sky-200 to-sky-100"}`}>
         <div className="absolute top-4 w-[200%] flex animate-cloud-scroll pointer-events-none opacity-60 z-10">
            {[...Array(12)].map((_, i) => (
              <div key={i} className={`mx-8 ${i % 2 === 0 ? 'mt-0' : 'mt-6'}`}>
@@ -472,34 +494,63 @@ const GameView = ({ stats: initialStats }) => {
         <div className="absolute top-4 right-4 z-[70] bg-white/90 backdrop-blur px-4 py-2 rounded-2xl border-2 border-slate-900 shadow-xl flex flex-col items-center min-w-[65px]">
           <span className="text-xl">🌳</span>
           <span className="text-lg font-black text-slate-900 leading-none mt-0.5">{tribeData.trees || 0}</span>
+          <span className="text-[9px] font-black uppercase text-emerald-700 mt-1">Nivel {forestLevel}</span>
         </div>
 
-        <div className="absolute bottom-0 w-full h-[70%] bg-[#f3e6d3]">
-          {/* Niebla de horizonte */}
-          <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-sky-100 to-transparent z-10 pointer-events-none" />
-          
-          <div className="relative w-full h-full max-w-7xl mx-auto overflow-visible">
-            {forestTrees.map((tree) => (
-              <div 
-                key={tree.id} 
-                className="absolute animate-pop-in origin-bottom transition-all duration-1000" 
-                style={{ 
-                  left: `${tree.x}%`, 
-                  top: `${tree.y}%`, 
-                  zIndex: Math.floor(tree.y), 
-                  transform: 'translate(-50%, -100%)' 
-                }}
-              >
-                <MediterraneanTree 
-                  level={tree.level} 
-                  yPos={tree.y} 
-                  zoomFactor={zoomFactor}
-                  isRecentlyWatered={tree.id === lastWateredTreeId}
-                />
+        {viewMode === 'iberia-map' ? (
+          <div className="absolute bottom-0 w-full h-[78%] bg-gradient-to-t from-slate-950/80 to-transparent">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(59,130,246,0.25),transparent_60%)]" />
+            <div className="relative w-full h-full max-w-5xl mx-auto">
+              <div className="absolute inset-6 rounded-[2.2rem] border border-emerald-300/30 bg-slate-900/50 backdrop-blur-sm shadow-[0_0_50px_rgba(16,185,129,0.18)] p-4">
+                <div className="absolute inset-0 opacity-90 pointer-events-none"><IberianPeninsula /></div>
+                {forestTrees.map((tree) => (
+                  <div
+                    key={tree.id}
+                    className="absolute origin-bottom transition-all duration-700"
+                    style={{
+                      left: `${16 + tree.x * 0.68}%`,
+                      top: `${9 + tree.y * 0.62}%`,
+                      transform: 'translate(-50%, -100%) scale(0.58)'
+                    }}
+                  >
+                    <MediterraneanTree
+                      level={tree.level}
+                      yPos={tree.y}
+                      zoomFactor={zoomFactor}
+                      isRecentlyWatered={tree.id === lastWateredTreeId}
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="absolute bottom-0 w-full h-[70%] bg-[#f3e6d3]">
+            <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-sky-100 to-transparent z-10 pointer-events-none" />
+
+            <div className="relative w-full h-full max-w-7xl mx-auto overflow-visible">
+              {forestTrees.map((tree) => (
+                <div
+                  key={tree.id}
+                  className="absolute animate-pop-in origin-bottom transition-all duration-1000"
+                  style={{
+                    left: `${tree.x}%`,
+                    top: `${tree.y}%`,
+                    zIndex: Math.floor(tree.y),
+                    transform: 'translate(-50%, -100%)'
+                  }}
+                >
+                  <MediterraneanTree
+                    level={tree.level}
+                    yPos={tree.y}
+                    zoomFactor={zoomFactor}
+                    isRecentlyWatered={tree.id === lastWateredTreeId}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
 
       <footer className="bg-slate-950 border-t border-white/5 flex flex-col items-center p-4 pb-10 z-50">
