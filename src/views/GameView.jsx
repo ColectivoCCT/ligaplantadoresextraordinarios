@@ -141,6 +141,7 @@ const GameView = ({ stats: initialStats }) => {
   const isSyncing = useRef(false);
   const prevWaterRef = useRef(tribeData.water || 0);
   const waterAnimTimeoutRef = useRef(null);
+  const waterAnimQueueRef = useRef([]);
 
   const currentTribe = (userData.tribe || "Nómadas").trim();
   const isJefe = userData.role === 'leader';
@@ -181,18 +182,26 @@ const GameView = ({ stats: initialStats }) => {
     }
 
     if (currentWater > previousWater) {
-      const changedIds = [];
+      const changedSequence = [];
       for (let waterStep = previousWater; waterStep < currentWater; waterStep += 1) {
-        changedIds.push(waterStep % numTrees);
+        changedSequence.push(waterStep % numTrees);
       }
 
-      const uniqueIds = [...new Set(changedIds)];
-      setRecentlyWateredTreeIds(uniqueIds);
+      // Limpiamos cualquier cola anterior para que cada riego se vea completo y ordenado.
+      waterAnimQueueRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      waterAnimQueueRef.current = [];
+
+      changedSequence.forEach((treeId, index) => {
+        const timeoutId = setTimeout(() => {
+          setRecentlyWateredTreeIds([treeId]);
+        }, index * 170);
+        waterAnimQueueRef.current.push(timeoutId);
+      });
 
       if (waterAnimTimeoutRef.current) clearTimeout(waterAnimTimeoutRef.current);
       waterAnimTimeoutRef.current = setTimeout(() => {
         setRecentlyWateredTreeIds([]);
-      }, 900);
+      }, changedSequence.length * 170 + 800);
     }
 
     prevWaterRef.current = currentWater;
@@ -200,6 +209,7 @@ const GameView = ({ stats: initialStats }) => {
 
   useEffect(() => () => {
     if (waterAnimTimeoutRef.current) clearTimeout(waterAnimTimeoutRef.current);
+    waterAnimQueueRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
   }, []);
 
   // --- LÓGICA DE DETECCIÓN DE LOGRO CON LOCALSTORAGE ---
