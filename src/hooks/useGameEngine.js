@@ -6,6 +6,7 @@ export const useGameEngine = () => {
   const [syncKey, setSyncKey] = useState(0);
 
   const triggerSync = () => setSyncKey(prev => prev + 1);
+  const MAX_TREE_LEVEL = 15;
 
   const getTreeDocRef = (tribeName, index) => {
     const safeIndex = Math.max(0, index);
@@ -145,7 +146,21 @@ export const useGameEngine = () => {
         const treeCount = tribeSnap.exists() ? Number(tribeSnap.data().trees || 0) : 0;
         if (treeCount <= 0) throw new Error('No hay árboles para regar todavía.');
 
+        const aggregateWater = tribeSnap.exists() ? Number(tribeSnap.data().water || 0) : 0;
+        const maxWaterCapacity = treeCount * (MAX_TREE_LEVEL - 1);
+        if (aggregateWater >= maxWaterCapacity) {
+          throw new Error('Tus árboles han llegado al nivel máximo. Planta nuevas semillas para seguir creciendo.');
+        }
+
         const startIndex = tribeSnap.exists() ? Number(tribeSnap.data().nextTreeIndex || 0) : 0;
+        const treeRefs = Array.from({ length: treeCount }, (_, i) => getTreeDocRef(activeTribe, i));
+        const treeSnaps = await Promise.all(treeRefs.map((ref) => transaction.get(ref)));
+        const levelsByIndex = treeSnaps.map((snap) => Number(snap.data()?.level || 1));
+        const remainingCapacity = levelsByIndex.reduce((acc, lvl) => acc + Math.max(0, MAX_TREE_LEVEL - lvl), 0);
+
+        if (remainingCapacity < 5) {
+          throw new Error('Tus árboles están casi al máximo. Planta nuevas semillas para subir al siguiente nivel del bosque.');
+        }
 
         transaction.update(userRef, {
           drops: increment(-5),
@@ -153,9 +168,21 @@ export const useGameEngine = () => {
           lastUpdate: Date.now()
         });
 
-        for (let i = 0; i < 5; i += 1) {
-          const treeIndex = (startIndex + i) % treeCount;
-          const treeRef = getTreeDocRef(activeTribe, treeIndex);
+        let pointer = startIndex;
+        for (let watered = 0; watered < 5; watered += 1) {
+          let attempts = 0;
+          while (levelsByIndex[pointer] >= MAX_TREE_LEVEL && attempts < treeCount) {
+            pointer = (pointer + 1) % treeCount;
+            attempts += 1;
+          }
+
+          if (attempts >= treeCount) {
+            throw new Error('No quedan árboles con capacidad de crecimiento.');
+          }
+
+          const treeIndex = pointer;
+          const treeRef = treeRefs[treeIndex];
+          levelsByIndex[treeIndex] += 1;
 
           transaction.set(treeRef, {
             index: treeIndex,
@@ -164,12 +191,14 @@ export const useGameEngine = () => {
             lastWateredBy: user.uid,
             lastWateredByName: userName || 'Alguien'
           }, { merge: true });
+
+          pointer = (treeIndex + 1) % treeCount;
         }
 
         transaction.set(tribeRef, {
           score: increment(25),
           water: increment(5),
-          nextTreeIndex: (startIndex + 5) % treeCount,
+          nextTreeIndex: pointer,
           lastActivity: serverTimestamp()
         }, { merge: true });
 
@@ -193,6 +222,14 @@ export const useGameEngine = () => {
 
             const serverDrops = Number(userSnap.data().drops || 0);
             if (serverDrops < 5) throw new Error('Necesitas al menos 5 gotas.');
+
+            const tribeSnap = await transaction.get(tribeRef);
+            const treeCount = tribeSnap.exists() ? Number(tribeSnap.data().trees || 0) : 0;
+            const aggregateWater = tribeSnap.exists() ? Number(tribeSnap.data().water || 0) : 0;
+            const maxWaterCapacity = treeCount * (MAX_TREE_LEVEL - 1);
+            if (treeCount <= 0 || aggregateWater >= maxWaterCapacity) {
+              throw new Error('Tus árboles han llegado al límite. Planta nuevas semillas para seguir creciendo.');
+            }
 
             transaction.update(userRef, {
               drops: increment(-5),

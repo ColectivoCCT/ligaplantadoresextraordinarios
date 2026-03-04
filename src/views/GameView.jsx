@@ -142,7 +142,6 @@ const GameView = ({ stats: initialStats }) => {
   const isSyncing = useRef(false);
   const prevWaterRef = useRef(tribeData.water || 0);
   const waterAnimTimeoutRef = useRef(null);
-  const waterAnimQueueRef = useRef([]);
   const hasHydratedWaterRef = useRef(false);
 
   const currentTribe = (userData.tribe || "Nómadas").trim();
@@ -203,32 +202,17 @@ const GameView = ({ stats: initialStats }) => {
       return;
     }
 
-    const waterDelta = currentWater - previousWater;
+    const previousWaterings = Math.floor(previousWater / 5);
+    const currentWaterings = Math.floor(currentWater / 5);
 
-    if (waterDelta > 0) {
-      const maxAnimatedDrops = 12;
-      const animatedDrops = Math.min(waterDelta, maxAnimatedDrops);
-      const sequenceStart = currentWater - animatedDrops;
-
-      const changedSequence = [];
-      for (let waterStep = sequenceStart; waterStep < currentWater; waterStep += 1) {
-        changedSequence.push(waterStep % numTrees);
-      }
-
-      waterAnimQueueRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
-      waterAnimQueueRef.current = [];
-
-      changedSequence.forEach((treeId, index) => {
-        const timeoutId = setTimeout(() => {
-          setRecentlyWateredTreeIds([treeId]);
-        }, index * 170);
-        waterAnimQueueRef.current.push(timeoutId);
-      });
+    if (currentWaterings > previousWaterings) {
+      const targetTreeId = (currentWaterings - 1) % numTrees;
+      setRecentlyWateredTreeIds([targetTreeId]);
 
       if (waterAnimTimeoutRef.current) clearTimeout(waterAnimTimeoutRef.current);
       waterAnimTimeoutRef.current = setTimeout(() => {
         setRecentlyWateredTreeIds([]);
-      }, changedSequence.length * 170 + 800);
+      }, 900);
     }
 
     prevWaterRef.current = currentWater;
@@ -236,7 +220,6 @@ const GameView = ({ stats: initialStats }) => {
 
   useEffect(() => () => {
     if (waterAnimTimeoutRef.current) clearTimeout(waterAnimTimeoutRef.current);
-    waterAnimQueueRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
   }, []);
 
   // --- LÓGICA DE DETECCIÓN DE LOGRO CON LOCALSTORAGE ---
