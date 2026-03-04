@@ -143,6 +143,7 @@ const GameView = ({ stats: initialStats }) => {
   const prevWaterRef = useRef(tribeData.water || 0);
   const waterAnimTimeoutRef = useRef(null);
   const waterAnimQueueRef = useRef([]);
+  const hasHydratedWaterRef = useRef(false);
 
   const currentTribe = (userData.tribe || "Nómadas").trim();
   const isJefe = userData.role === 'leader';
@@ -189,19 +190,31 @@ const GameView = ({ stats: initialStats }) => {
     const currentWater = tribeData.water || 0;
     const previousWater = prevWaterRef.current || 0;
 
+    // Evita animar el histórico cuando se hidrata por primera vez el estado desde Firestore.
+    if (!hasHydratedWaterRef.current) {
+      hasHydratedWaterRef.current = true;
+      prevWaterRef.current = currentWater;
+      return;
+    }
+
     if (numTrees <= 0) {
       prevWaterRef.current = currentWater;
       setRecentlyWateredTreeIds([]);
       return;
     }
 
-    if (currentWater > previousWater) {
+    const waterDelta = currentWater - previousWater;
+
+    if (waterDelta > 0) {
+      const maxAnimatedDrops = 12;
+      const animatedDrops = Math.min(waterDelta, maxAnimatedDrops);
+      const sequenceStart = currentWater - animatedDrops;
+
       const changedSequence = [];
-      for (let waterStep = previousWater; waterStep < currentWater; waterStep += 1) {
+      for (let waterStep = sequenceStart; waterStep < currentWater; waterStep += 1) {
         changedSequence.push(waterStep % numTrees);
       }
 
-      // Limpiamos cualquier cola anterior para que cada riego se vea completo y ordenado.
       waterAnimQueueRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
       waterAnimQueueRef.current = [];
 

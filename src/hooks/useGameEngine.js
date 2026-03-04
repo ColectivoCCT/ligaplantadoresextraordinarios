@@ -13,6 +13,8 @@ export const useGameEngine = () => {
     return doc(db, 'tribes', tribeName, 'trees', treeId);
   };
 
+
+
   // 1. PLANTAR UN ÁRBOL (modelo híbrido: agregados + árbol individual)
   const plantTree = async (currentSeeds, tribeName, userName) => {
     const user = auth.currentUser;
@@ -73,6 +75,48 @@ export const useGameEngine = () => {
 
       triggerSync();
     } catch (error) {
+      if (error?.code === 'permission-denied') {
+        // Fallback temporal: si aún no están abiertas las reglas de /tribes/{id}/trees,
+        // mantenemos la experiencia funcional con el modelo agregado.
+        try {
+          await runTransaction(db, async (transaction) => {
+            const userSnap = await transaction.get(userRef);
+            if (!userSnap.exists()) throw new Error('No se encontró tu perfil de usuario.');
+
+            const serverSeeds = Number(userSnap.data().seeds || 0);
+            if (serverSeeds <= 0) throw new Error('Saldo de semillas insuficiente.');
+
+            transaction.update(userRef, {
+              seeds: increment(-1),
+              trees: increment(1),
+              score: increment(10),
+              lastUpdate: Date.now()
+            });
+
+            transaction.set(tribeRef, {
+              score: increment(10),
+              trees: increment(1),
+              lastActivity: serverTimestamp()
+            }, { merge: true });
+
+            transaction.set(activityRef, {
+              userId: user.uid,
+              userName: userName || 'Alguien',
+              tribeId: activeTribe,
+              type: 'plant',
+              text: 'ha plantado un nuevo árbol',
+              timestamp: serverTimestamp()
+            });
+          });
+
+          triggerSync();
+          return;
+        } catch (fallbackError) {
+          console.error('Error en fallback al plantar:', fallbackError);
+          throw fallbackError;
+        }
+      }
+
       console.error('Error al plantar:', error);
       throw error;
     }
@@ -141,6 +185,45 @@ export const useGameEngine = () => {
 
       triggerSync();
     } catch (error) {
+      if (error?.code === 'permission-denied') {
+        try {
+          await runTransaction(db, async (transaction) => {
+            const userSnap = await transaction.get(userRef);
+            if (!userSnap.exists()) throw new Error('No se encontró tu perfil de usuario.');
+
+            const serverDrops = Number(userSnap.data().drops || 0);
+            if (serverDrops < 5) throw new Error('Necesitas al menos 5 gotas.');
+
+            transaction.update(userRef, {
+              drops: increment(-5),
+              score: increment(25),
+              lastUpdate: Date.now()
+            });
+
+            transaction.set(tribeRef, {
+              score: increment(25),
+              water: increment(5),
+              lastActivity: serverTimestamp()
+            }, { merge: true });
+
+            transaction.set(activityRef, {
+              userId: user.uid,
+              userName: userName || 'Alguien',
+              tribeId: activeTribe,
+              type: 'water',
+              text: 'ha regado el bosque (+25 pts)',
+              timestamp: serverTimestamp()
+            });
+          });
+
+          triggerSync();
+          return;
+        } catch (fallbackError) {
+          console.error('Error en fallback al regar:', fallbackError);
+          throw fallbackError;
+        }
+      }
+
       console.error('Error al regar:', error);
       throw error;
     }
