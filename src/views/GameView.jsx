@@ -123,6 +123,7 @@ const GameView = ({ stats: initialStats }) => {
   const [tribeRanking, setTribeRanking] = useState([]);
   const [tribeData, setTribeData] = useState({ score: 0, members: 1, trees: 0, water: 0 });
   const [activities, setActivities] = useState([]);
+  const [treeStates, setTreeStates] = useState([]);
   const [progress, setProgress] = useState(0);
   const [showPlusOne, setShowPlusOne] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -168,6 +169,19 @@ const GameView = ({ stats: initialStats }) => {
     if (!currentTribe) return;
     const tribeRef = doc(db, "tribes", currentTribe);
     return onSnapshot(tribeRef, (docSnap) => { if (docSnap.exists()) setTribeData(docSnap.data()); });
+  }, [currentTribe]);
+
+
+  useEffect(() => {
+    if (!currentTribe) return;
+    const treesQuery = query(collection(db, 'tribes', currentTribe, 'trees'), orderBy('index'));
+    return onSnapshot(treesQuery, (snapshot) => {
+      const trees = [];
+      snapshot.forEach((treeDoc) => {
+        trees.push({ id: treeDoc.id, ...treeDoc.data() });
+      });
+      setTreeStates(trees);
+    });
   }, [currentTribe]);
 
   useEffect(() => {
@@ -303,7 +317,7 @@ const GameView = ({ stats: initialStats }) => {
   const { forestTrees, zoomFactor, viewMode, forestLevel } = useMemo(() => {
     const numTrees = tribeData.trees || 0;
     const totalWater = tribeData.water || 0;
-    
+
     const forestLevel = Math.floor(numTrees / 35);
     const viewMode = numTrees >= 180 ? 'iberia-map' : 'local-forest';
 
@@ -312,26 +326,30 @@ const GameView = ({ stats: initialStats }) => {
       factor = Math.max(0.3, 1.08 - Math.log1p(numTrees - 30) * 0.15);
     }
 
-    const levels = Array.from({ length: numTrees }, () => 1);
-
+    const computedLevels = Array.from({ length: numTrees }, () => 1);
     for (let drop = 0; drop < totalWater; drop += 1) {
-      let minIndex = 0;
-      for (let i = 1; i < levels.length; i += 1) {
-        if (levels[i] < levels[minIndex]) minIndex = i;
-      }
-      levels[minIndex] += 1;
+      const index = numTrees > 0 ? drop % numTrees : 0;
+      if (computedLevels[index] !== undefined) computedLevels[index] += 1;
     }
+
+    const levelByIndex = new Map();
+    treeStates.forEach((treeDoc) => {
+      if (typeof treeDoc.index === 'number') {
+        levelByIndex.set(treeDoc.index, Number(treeDoc.level || 1));
+      }
+    });
 
     const trees = Array.from({ length: numTrees }, (_, i) => {
       const x = 5 + seededRandom(i * 105) * 90;
       const rawY = seededRandom(i * 210);
-      const y = 10 + (Math.pow(rawY, 0.8)) * 85; 
+      const y = 10 + (Math.pow(rawY, 0.8)) * 85;
+      const hybridLevel = levelByIndex.has(i) ? levelByIndex.get(i) : computedLevels[i];
 
-      return { id: i, x, y, level: levels[i] };
+      return { id: i, x, y, level: hybridLevel };
     }).sort((a, b) => a.y - b.y);
 
     return { forestTrees: trees, zoomFactor: factor, viewMode, forestLevel };
-  }, [tribeData.trees, tribeData.water]);
+  }, [tribeData.trees, tribeData.water, treeStates]);
 
   return (
     <div className="h-[100dvh] w-full bg-[#020617] text-white flex flex-col overflow-hidden font-sans italic">
