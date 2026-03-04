@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../lib/firebase';
 import { doc, updateDoc, increment, collection, query, onSnapshot, where, orderBy, limit } from 'firebase/firestore';
 import { useGameEngine } from '../hooks/useGameEngine';
@@ -130,6 +131,8 @@ const GameView = ({ stats: initialStats }) => {
   const [showManageModal, setShowManageModal] = useState(false);
   const [showHeroAnim, setShowHeroAnim] = useState(false);
   const [isWatering, setIsWatering] = useState(false);
+  const [showSeedChallengeModal, setShowSeedChallengeModal] = useState(false);
+  const [seedChallengeMessage, setSeedChallengeMessage] = useState('');
   
   // Estados para el Logro
   const [showAchievementModal, setShowAchievementModal] = useState(false);
@@ -144,6 +147,7 @@ const GameView = ({ stats: initialStats }) => {
   const waterAnimTimeoutRef = useRef(null);
   const hasHydratedWaterRef = useRef(false);
 
+  const navigate = useNavigate();
   const currentTribe = (userData.tribe || "Nómadas").trim();
   const isJefe = userData.role === 'leader';
   const myTribeRank = tribeRanking.findIndex(t => t.name === currentTribe) + 1;
@@ -304,7 +308,13 @@ const GameView = ({ stats: initialStats }) => {
       const msg = error?.code === 'permission-denied'
         ? 'No tienes permisos para regar en tiempo real (usuario/tribu/actividad). No se aplicó ningún cambio. Revisa reglas de Firestore.'
         : (error.message || 'No se pudo regar el bosque.');
-      alert(msg);
+
+      if (msg.toLowerCase().includes('semillas') || msg.toLowerCase().includes('límite') || msg.toLowerCase().includes('máximo')) {
+        setSeedChallengeMessage(msg);
+        setShowSeedChallengeModal(true);
+      } else {
+        alert(msg);
+      }
     } finally {
       setIsWatering(false);
     }
@@ -350,6 +360,39 @@ const GameView = ({ stats: initialStats }) => {
   return (
     <div className="h-[100dvh] w-full bg-[#020617] text-white flex flex-col overflow-hidden font-sans italic">
       
+      {showSeedChallengeModal && (
+        <div className="absolute inset-0 z-[210] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="relative w-full max-w-md bg-gradient-to-br from-slate-900 to-emerald-950 border-2 border-emerald-400/40 rounded-[32px] p-6 shadow-[0_0_60px_rgba(16,185,129,0.35)]">
+            <div className="flex items-start gap-4">
+              <img src={beleafImg} alt="Beleaf" className="w-24 h-24 object-contain drop-shadow-[0_0_20px_rgba(52,211,153,0.55)]" />
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-emerald-300 font-black mb-2">Mensaje de Beleaf</p>
+                <h3 className="text-xl font-black leading-tight mb-2">Necesitas nuevas semillas</h3>
+                <p className="text-sm text-white/80">{seedChallengeMessage || 'Tus árboles ya están al máximo. Supera retos para conseguir semillas y seguir creciendo.'}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setShowSeedChallengeModal(false)}
+                className="h-11 rounded-xl border border-white/20 bg-white/5 text-white text-[10px] uppercase font-black tracking-wider"
+              >
+                Cerrar
+              </button>
+              <button
+                onClick={() => {
+                  setShowSeedChallengeModal(false);
+                  navigate('/retos');
+                }}
+                className="h-11 rounded-xl bg-emerald-400 text-slate-950 text-[10px] uppercase font-black tracking-wider"
+              >
+                Ir a retos
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- MODAL ÉPICO DE LOGRO (100 ÁRBOLES) --- */}
       {showAchievementModal && (
   <div className="absolute inset-0 z-[200] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">

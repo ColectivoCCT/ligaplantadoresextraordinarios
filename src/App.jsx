@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -7,8 +8,10 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import RegisterView from './views/RegisterView';
 import AdminPanel from './views/AdminPanel';
 import GameView from './views/GameView';
+import RetosView from './views/RetosView';
 
 function App() {
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -93,6 +96,10 @@ function App() {
   // Si es el admin, mostramos su panel
   if (user.email === "admin@colectivocrecet.com") {
     return <AdminPanel />;
+  }
+
+  if (location.pathname.startsWith('/retos')) {
+    return <RetosView />;
   }
 
   // Para todo lo demás (Believers), mostramos el juego con sus stats

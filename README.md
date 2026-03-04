@@ -35,3 +35,28 @@ npm run check:watch
 - `npm run check`: lint + build.
 - `npm run build:watch`: build en modo observación.
 - `npm run check:watch`: alias de validación continua.
+
+## Flujo sugerido para minijuegos (alumnos)
+
+Estructura simple para que cada minijuego viva en su archivo y sea fácil de revisar:
+
+1. Crear carpeta y archivo por reto:
+   - `src/minigames/NombreReto.jsx`
+2. Cada minijuego exporta un componente con interfaz común:
+   - `onWin(seedsGanadas)`
+   - `onExit()`
+3. Registrar tarjeta/enlace en `src/views/RetosView.jsx`.
+4. Al ganar, sumar semillas del usuario con una función central del motor (`useGameEngine`) para mantener reglas consistentes.
+5. Checklist para alumnado antes de entregar:
+   - `npm run lint`
+   - `npm run build`
+   - captura de pantalla del minijuego funcionando.
+
+### Convención recomendada para ejercicios
+- Un PR por minijuego.
+- Nombre de rama: `reto/<curso>-<equipo>-<minijuego>`.
+- En la descripción del PR incluir:
+  - objetivo del minijuego,
+  - mecánica,
+  - puntos/semillas máximas,
+  - evidencia visual.
