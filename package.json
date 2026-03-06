@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "npm run lint && npm run build",
+    "build:watch": "vite build --watch",
+    "check:watch": "npm run build:watch"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.18",

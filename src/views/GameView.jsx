@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../lib/firebase';
 import { doc, updateDoc, increment, collection, query, onSnapshot, where, orderBy, limit } from 'firebase/firestore';
 import { useGameEngine } from '../hooks/useGameEngine';
@@ -46,9 +47,9 @@ const seededRandom = (seed) => {
 };
 
 // --- ÁRBOL CON PERSPECTIVA MEJORADA ---
-const MediterraneanTree = ({ level, yPos, zoomFactor }) => {
+const MediterraneanTree = ({ level, yPos, zoomFactor, isRecentlyWatered = false }) => {
   const perspectiveScale = 0.35 + (Math.pow(yPos / 100, 1.5)) * 0.65;
-  const growthLevel = Math.min(level * 0.04, 1.0);
+  const growthLevel = Math.min((Math.sqrt(level) * 0.22) + Math.min(level * 0.045, 0.55), 1.9);
   const finalScale = (perspectiveScale + growthLevel) * zoomFactor;
 
   const brightness = 75 + (yPos / 100) * 25;
@@ -56,12 +57,32 @@ const MediterraneanTree = ({ level, yPos, zoomFactor }) => {
 
   return (
     <div 
-      className="relative flex flex-col items-center transition-all duration-1000 ease-in-out" 
+      className={`relative flex flex-col items-center transition-all duration-1000 ease-in-out ${isRecentlyWatered ? "animate-water-highlight" : ""}`} 
       style={{ 
         transform: `scale(${finalScale})`,
         filter: `brightness(${brightness}%) saturate(${saturate}%)`
       }}
     >
+      {isRecentlyWatered && (
+        <>
+          <div className="absolute -top-7 left-1/2 -translate-x-1/2 w-16 h-10 pointer-events-none">
+            {Array.from({ length: 14 }, (_, i) => (
+              <span
+                key={i}
+                className="absolute top-0 rounded-full bg-sky-300/90 animate-pump-drop"
+                style={{
+                  left: `${4 + (i * 4)}px`,
+                  width: `${2 + (i % 3)}px`,
+                  height: `${4 + (i % 4)}px`,
+                  animationDelay: `${i * 0.035}s`,
+                  animationDuration: `${0.48 + (i % 4) * 0.07}s`
+                }}
+              />
+            ))}
+          </div>
+          <div className="absolute -bottom-2 w-12 h-12 border border-sky-300/60 rounded-full animate-water-ring" />
+        </>
+      )}
       <div className="absolute -bottom-1 w-14 h-3 bg-black/10 rounded-[100%] blur-md" />
       <svg width="60" height="80" viewBox="0 0 120 140" className="filter drop-shadow-lg">
         <path d="M52 130 Q60 125 68 130 L64 90 Q60 85 56 90 Z" fill="#4a3728" />
@@ -76,27 +97,57 @@ const MediterraneanTree = ({ level, yPos, zoomFactor }) => {
   );
 };
 
+
+const IberianPeninsula = () => (
+  <svg viewBox="0 0 1000 700" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <linearGradient id="iberiaLand" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#14532d" />
+        <stop offset="100%" stopColor="#166534" />
+      </linearGradient>
+    </defs>
+    <path
+      d="M114 388 L126 327 L154 286 L212 242 L277 212 L365 198 L457 168 L534 142 L599 136 L667 173 L734 194 L805 228 L853 286 L865 352 L843 408 L807 466 L750 522 L673 564 L594 570 L525 552 L463 572 L387 589 L299 575 L236 546 L188 500 L148 452 Z"
+      fill="url(#iberiaLand)"
+      stroke="#86efac"
+      strokeWidth="8"
+      strokeLinejoin="round"
+      className="drop-shadow-[0_0_20px_rgba(16,185,129,0.45)]"
+    />
+    <path d="M783 531 L854 557 L847 601 L771 592 Z" fill="#15803d" stroke="#86efac" strokeWidth="6" />
+  </svg>
+);
+
 const GameView = ({ stats: initialStats }) => {
   const { plantTree, waterForest, syncKey } = useGameEngine();
   const [userData, setUserData] = useState(initialStats || {});
   const [tribeRanking, setTribeRanking] = useState([]);
   const [tribeData, setTribeData] = useState({ score: 0, members: 1, trees: 0, water: 0 });
   const [activities, setActivities] = useState([]);
+  const [treeStates, setTreeStates] = useState([]);
   const [progress, setProgress] = useState(0);
   const [showPlusOne, setShowPlusOne] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
   const [showHeroAnim, setShowHeroAnim] = useState(false);
+  const [isWatering, setIsWatering] = useState(false);
+  const [showSeedChallengeModal, setShowSeedChallengeModal] = useState(false);
+  const [seedChallengeMessage, setSeedChallengeMessage] = useState('');
   
   // Estados para el Logro
   const [showAchievementModal, setShowAchievementModal] = useState(false);
   const [achievementSeen, setAchievementSeen] = useState(false); 
 
   const [copied, setCopied] = useState(false);
+  const [recentlyWateredTreeIds, setRecentlyWateredTreeIds] = useState([]);
   
   const localTimerRef = useRef(0);
   const isSyncing = useRef(false);
+  const prevWaterRef = useRef(tribeData.water || 0);
+  const waterAnimTimeoutRef = useRef(null);
+  const hasHydratedWaterRef = useRef(false);
 
+  const navigate = useNavigate();
   const currentTribe = (userData.tribe || "Nómadas").trim();
   const isJefe = userData.role === 'leader';
   const myTribeRank = tribeRanking.findIndex(t => t.name === currentTribe) + 1;
@@ -123,6 +174,57 @@ const GameView = ({ stats: initialStats }) => {
     const tribeRef = doc(db, "tribes", currentTribe);
     return onSnapshot(tribeRef, (docSnap) => { if (docSnap.exists()) setTribeData(docSnap.data()); });
   }, [currentTribe]);
+
+
+  useEffect(() => {
+    if (!currentTribe) return;
+    const treesQuery = query(collection(db, 'tribes', currentTribe, 'trees'), orderBy('index'));
+    return onSnapshot(treesQuery, (snapshot) => {
+      const trees = [];
+      snapshot.forEach((treeDoc) => {
+        trees.push({ id: treeDoc.id, ...treeDoc.data() });
+      });
+      setTreeStates(trees);
+    });
+  }, [currentTribe]);
+
+  useEffect(() => {
+    const numTrees = tribeData.trees || 0;
+    const currentWater = tribeData.water || 0;
+    const previousWater = prevWaterRef.current || 0;
+
+    // Evita animar el histórico cuando se hidrata por primera vez el estado desde Firestore.
+    if (!hasHydratedWaterRef.current) {
+      hasHydratedWaterRef.current = true;
+      prevWaterRef.current = currentWater;
+      return;
+    }
+
+    if (numTrees <= 0) {
+      prevWaterRef.current = currentWater;
+      setRecentlyWateredTreeIds([]);
+      return;
+    }
+
+    const previousWaterings = Math.floor(previousWater / 5);
+    const currentWaterings = Math.floor(currentWater / 5);
+
+    if (currentWaterings > previousWaterings) {
+      const targetTreeId = (currentWaterings - 1) % numTrees;
+      setRecentlyWateredTreeIds([targetTreeId]);
+
+      if (waterAnimTimeoutRef.current) clearTimeout(waterAnimTimeoutRef.current);
+      waterAnimTimeoutRef.current = setTimeout(() => {
+        setRecentlyWateredTreeIds([]);
+      }, 900);
+    }
+
+    prevWaterRef.current = currentWater;
+  }, [tribeData.water, tribeData.trees]);
+
+  useEffect(() => () => {
+    if (waterAnimTimeoutRef.current) clearTimeout(waterAnimTimeoutRef.current);
+  }, []);
 
   // --- LÓGICA DE DETECCIÓN DE LOGRO CON LOCALSTORAGE ---
   useEffect(() => {
@@ -194,35 +296,103 @@ const GameView = ({ stats: initialStats }) => {
     }, 600);
   };
 
-  const { forestTrees, zoomFactor } = useMemo(() => {
+  const handleWaterClick = async () => {
+    if (userData.drops < 5 || isWatering) return;
+
+    setIsWatering(true);
+
+    try {
+      await waterForest(userData.drops, currentTribe, userData.name);
+    } catch (error) {
+      console.error(error);
+      const msg = error?.code === 'permission-denied'
+        ? 'No tienes permisos para regar en tiempo real (usuario/tribu/actividad). No se aplicó ningún cambio. Revisa reglas de Firestore.'
+        : (error.message || 'No se pudo regar el bosque.');
+
+      if (msg.toLowerCase().includes('semillas') || msg.toLowerCase().includes('límite') || msg.toLowerCase().includes('máximo')) {
+        setSeedChallengeMessage(msg);
+        setShowSeedChallengeModal(true);
+      } else {
+        alert(msg);
+      }
+    } finally {
+      setIsWatering(false);
+    }
+  };
+
+  const { forestTrees, zoomFactor, viewMode, forestLevel } = useMemo(() => {
     const numTrees = tribeData.trees || 0;
     const totalWater = tribeData.water || 0;
-    
-    let factor = 1.0;
-    if (numTrees > 40 && numTrees <= 100) {
-      factor = 1.0 - (numTrees - 40) * 0.0066; 
-    } else if (numTrees > 100) {
-      factor = Math.max(0.25, 0.6 - (numTrees - 100) * 0.001);
+
+    const forestLevel = Math.floor(numTrees / 35);
+    const viewMode = numTrees >= 180 ? 'iberia-map' : 'local-forest';
+
+    let factor = 1.08;
+    if (numTrees > 30) {
+      factor = Math.max(0.3, 1.08 - Math.log1p(numTrees - 30) * 0.15);
     }
 
-    const baseWaterPerTree = numTrees > 0 ? Math.floor(totalWater / numTrees) : 0;
-    const remainderWater = numTrees > 0 ? totalWater % numTrees : 0;
+    const computedLevels = Array.from({ length: numTrees }, () => 1);
+    for (let drop = 0; drop < totalWater; drop += 1) {
+      const index = numTrees > 0 ? drop % numTrees : 0;
+      if (computedLevels[index] !== undefined) computedLevels[index] += 1;
+    }
+
+    const levelByIndex = new Map();
+    treeStates.forEach((treeDoc) => {
+      if (typeof treeDoc.index === 'number') {
+        levelByIndex.set(treeDoc.index, Number(treeDoc.level || 1));
+      }
+    });
 
     const trees = Array.from({ length: numTrees }, (_, i) => {
       const x = 5 + seededRandom(i * 105) * 90;
       const rawY = seededRandom(i * 210);
-      const y = 10 + (Math.pow(rawY, 0.8)) * 85; 
+      const y = 10 + (Math.pow(rawY, 0.8)) * 85;
+      const hybridLevel = levelByIndex.has(i) ? levelByIndex.get(i) : computedLevels[i];
 
-      const individualLevel = 1 + baseWaterPerTree + (i < remainderWater ? 1 : 0);
-      return { id: i, x, y, level: individualLevel };
+      return { id: i, x, y, level: hybridLevel };
     }).sort((a, b) => a.y - b.y);
 
-    return { forestTrees: trees, zoomFactor: factor };
-  }, [tribeData.trees, tribeData.water]);
+    return { forestTrees: trees, zoomFactor: factor, viewMode, forestLevel };
+  }, [tribeData.trees, tribeData.water, treeStates]);
 
   return (
     <div className="h-[100dvh] w-full bg-[#020617] text-white flex flex-col overflow-hidden font-sans italic">
       
+      {showSeedChallengeModal && (
+        <div className="absolute inset-0 z-[210] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="relative w-full max-w-md bg-gradient-to-br from-slate-900 to-emerald-950 border-2 border-emerald-400/40 rounded-[32px] p-6 shadow-[0_0_60px_rgba(16,185,129,0.35)]">
+            <div className="flex items-start gap-4">
+              <img src={beleafImg} alt="Beleaf" className="w-24 h-24 object-contain drop-shadow-[0_0_20px_rgba(52,211,153,0.55)]" />
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-emerald-300 font-black mb-2">Mensaje de Beleaf</p>
+                <h3 className="text-xl font-black leading-tight mb-2">Necesitas nuevas semillas</h3>
+                <p className="text-sm text-white/80">{seedChallengeMessage || 'Tus árboles ya están al máximo. Supera retos para conseguir semillas y seguir creciendo.'}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setShowSeedChallengeModal(false)}
+                className="h-11 rounded-xl border border-white/20 bg-white/5 text-white text-[10px] uppercase font-black tracking-wider"
+              >
+                Cerrar
+              </button>
+              <button
+                onClick={() => {
+                  setShowSeedChallengeModal(false);
+                  navigate('/retos');
+                }}
+                className="h-11 rounded-xl bg-emerald-400 text-slate-950 text-[10px] uppercase font-black tracking-wider"
+              >
+                Ir a retos
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- MODAL ÉPICO DE LOGRO (100 ÁRBOLES) --- */}
       {showAchievementModal && (
   <div className="absolute inset-0 z-[200] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
@@ -403,7 +573,7 @@ const GameView = ({ stats: initialStats }) => {
         <div className="h-full bg-emerald-500 transition-all duration-100 ease-linear" style={{ width: `${progress}%` }} />
       </div>
 
-      <main className="flex-1 relative overflow-hidden bg-gradient-to-b from-sky-400 via-sky-200 to-sky-100 min-h-0">
+      <main className={`flex-1 relative overflow-hidden min-h-0 ${viewMode === "iberia-map" ? "bg-gradient-to-b from-slate-900 via-slate-800 to-slate-700" : "bg-gradient-to-b from-sky-400 via-sky-200 to-sky-100"}`}>
         <div className="absolute top-4 w-[200%] flex animate-cloud-scroll pointer-events-none opacity-60 z-10">
            {[...Array(12)].map((_, i) => (
              <div key={i} className={`mx-8 ${i % 2 === 0 ? 'mt-0' : 'mt-6'}`}>
@@ -426,33 +596,63 @@ const GameView = ({ stats: initialStats }) => {
         <div className="absolute top-4 right-4 z-[70] bg-white/90 backdrop-blur px-4 py-2 rounded-2xl border-2 border-slate-900 shadow-xl flex flex-col items-center min-w-[65px]">
           <span className="text-xl">🌳</span>
           <span className="text-lg font-black text-slate-900 leading-none mt-0.5">{tribeData.trees || 0}</span>
+          <span className="text-[9px] font-black uppercase text-emerald-700 mt-1">Nivel {forestLevel}</span>
         </div>
 
-        <div className="absolute bottom-0 w-full h-[70%] bg-[#f3e6d3]">
-          {/* Niebla de horizonte */}
-          <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-sky-100 to-transparent z-10 pointer-events-none" />
-          
-          <div className="relative w-full h-full max-w-7xl mx-auto overflow-visible">
-            {forestTrees.map((tree) => (
-              <div 
-                key={tree.id} 
-                className="absolute animate-pop-in origin-bottom transition-all duration-1000" 
-                style={{ 
-                  left: `${tree.x}%`, 
-                  top: `${tree.y}%`, 
-                  zIndex: Math.floor(tree.y), 
-                  transform: 'translate(-50%, -100%)' 
-                }}
-              >
-                <MediterraneanTree 
-                  level={tree.level} 
-                  yPos={tree.y} 
-                  zoomFactor={zoomFactor}
-                />
+        {viewMode === 'iberia-map' ? (
+          <div className="absolute bottom-0 w-full h-[78%] bg-gradient-to-t from-slate-950/80 to-transparent">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(59,130,246,0.25),transparent_60%)]" />
+            <div className="relative w-full h-full max-w-5xl mx-auto">
+              <div className="absolute inset-6 rounded-[2.2rem] border border-emerald-300/30 bg-slate-900/50 backdrop-blur-sm shadow-[0_0_50px_rgba(16,185,129,0.18)] p-4">
+                <div className="absolute inset-0 opacity-90 pointer-events-none"><IberianPeninsula /></div>
+                {forestTrees.map((tree) => (
+                  <div
+                    key={tree.id}
+                    className="absolute origin-bottom transition-all duration-700"
+                    style={{
+                      left: `${16 + tree.x * 0.68}%`,
+                      top: `${9 + tree.y * 0.62}%`,
+                      transform: 'translate(-50%, -100%) scale(0.58)'
+                    }}
+                  >
+                    <MediterraneanTree
+                      level={tree.level}
+                      yPos={tree.y}
+                      zoomFactor={zoomFactor}
+                      isRecentlyWatered={recentlyWateredTreeIds.includes(tree.id)}
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="absolute bottom-0 w-full h-[70%] bg-[#f3e6d3]">
+            <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-sky-100 to-transparent z-10 pointer-events-none" />
+
+            <div className="relative w-full h-full max-w-7xl mx-auto overflow-visible">
+              {forestTrees.map((tree) => (
+                <div
+                  key={tree.id}
+                  className="absolute animate-pop-in origin-bottom transition-all duration-1000"
+                  style={{
+                    left: `${tree.x}%`,
+                    top: `${tree.y}%`,
+                    zIndex: Math.floor(tree.y),
+                    transform: 'translate(-50%, -100%)'
+                  }}
+                >
+                  <MediterraneanTree
+                    level={tree.level}
+                    yPos={tree.y}
+                    zoomFactor={zoomFactor}
+                    isRecentlyWatered={recentlyWateredTreeIds.includes(tree.id)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
 
       <footer className="bg-slate-950 border-t border-white/5 flex flex-col items-center p-4 pb-10 z-50">
@@ -465,11 +665,11 @@ const GameView = ({ stats: initialStats }) => {
             SEMBRAR
           </button>
           <button 
-            disabled={userData.drops < 5}
-            onClick={() => { playSound('water'); waterForest(userData.drops, currentTribe, userData.name); }} 
+            disabled={userData.drops < 5 || isWatering}
+            onClick={handleWaterClick}
             className="flex-1 max-w-[140px] h-12 bg-emerald-600 disabled:bg-slate-800 disabled:opacity-50 text-white rounded-xl font-black uppercase text-[10px]"
           >
-            REGAR
+            {isWatering ? 'REGANDO...' : 'REGAR'}
           </button>
         </div>
         {isJefe && (
@@ -492,7 +692,24 @@ const GameView = ({ stats: initialStats }) => {
         .animate-pop-in { animation: pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
         .animate-cloud-scroll { animation: cloud-scroll 120s linear infinite; }
         .animate-fade-in-left { animation: fade-in-left 0.5s ease-out forwards; }
+        @keyframes water-highlight {
+          0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(34,197,94,0)); }
+          30% { transform: scale(1.22); filter: drop-shadow(0 0 30px rgba(34,197,94,0.72)); }
+          100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(34,197,94,0)); }
+        }
+        @keyframes pump-drop {
+          0% { opacity: 0; transform: translateY(-2px) scale(0.75); }
+          20% { opacity: 1; }
+          100% { opacity: 0; transform: translateY(24px) scale(0.55); }
+        }
         .animate-hero-drop { animation: hero-drop 0.8s ease-in-out forwards; }
+        .animate-water-highlight { animation: water-highlight 0.9s ease-out; }
+        .animate-pump-drop { animation-name: pump-drop; animation-timing-function: ease-out; animation-fill-mode: none; opacity: 0; }
+        @keyframes water-ring {
+          0% { opacity: 0.75; transform: scale(0.6); }
+          100% { opacity: 0; transform: scale(1.5); }
+        }
+        .animate-water-ring { animation: water-ring 0.9s ease-out; }
       `}} />
     </div>
   );

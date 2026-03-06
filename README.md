@@ -1,16 +1,62 @@
-# React + Vite
+# Liga de los Plantadores Extraordinarios
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Aplicación React + Vite para gestionar el juego de tribus, siembra y riego.
 
-Currently, two official plugins are available:
+## Flujo recomendado para probar cambios (sin refrescar manualmente)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### 1) Desarrollo con recarga automática (HMR)
+```bash
+npm run dev
+```
+- Levanta el servidor local.
+- Cada vez que guardas un archivo, la interfaz se actualiza sola en el navegador.
 
-## React Compiler
+### 2) Verificación rápida de calidad
+```bash
+npm run check
+```
+Ejecuta en cadena:
+- `npm run lint`
+- `npm run build`
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 3) Build en modo watch (validación continua)
+```bash
+npm run check:watch
+```
+- Ejecuta `vite build --watch`.
+- Recompila automáticamente cuando detecta cambios en el código.
 
-## Expanding the ESLint configuration
+## Scripts disponibles
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- `npm run dev`: servidor de desarrollo con hot reload.
+- `npm run lint`: revisión estática con ESLint.
+- `npm run build`: build de producción.
+- `npm run preview`: previsualiza el build.
+- `npm run check`: lint + build.
+- `npm run build:watch`: build en modo observación.
+- `npm run check:watch`: alias de validación continua.
+
+## Flujo sugerido para minijuegos (alumnos)
+
+Estructura simple para que cada minijuego viva en su archivo y sea fácil de revisar:
+
+1. Crear carpeta y archivo por reto:
+   - `src/minigames/NombreReto.jsx`
+2. Cada minijuego exporta un componente con interfaz común:
+   - `onWin(seedsGanadas)`
+   - `onExit()`
+3. Registrar tarjeta/enlace en `src/views/RetosView.jsx`.
+4. Al ganar, sumar semillas del usuario con una función central del motor (`useGameEngine`) para mantener reglas consistentes.
+5. Checklist para alumnado antes de entregar:
+   - `npm run lint`
+   - `npm run build`
+   - captura de pantalla del minijuego funcionando.
+
+### Convención recomendada para ejercicios
+- Un PR por minijuego.
+- Nombre de rama: `reto/<curso>-<equipo>-<minijuego>`.
+- En la descripción del PR incluir:
+  - objetivo del minijuego,
+  - mecánica,
+  - puntos/semillas máximas,
+  - evidencia visual.

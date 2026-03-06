@@ -1,89 +1,267 @@
 import { useState } from 'react';
 import { db, auth } from '../lib/firebase';
-import { doc, updateDoc, increment, setDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
+import { doc, updateDoc, increment, serverTimestamp, collection, runTransaction } from 'firebase/firestore';
 
 export const useGameEngine = () => {
   const [syncKey, setSyncKey] = useState(0);
 
   const triggerSync = () => setSyncKey(prev => prev + 1);
+  const MAX_TREE_LEVEL = 15;
 
-  // 1. PLANTAR UN ÁRBOL
-  const plantTree = async (currentSeeds, tribeName, userName) => {
-    const user = auth.currentUser;
-    if (!user) throw new Error("Debes iniciar sesión");
-    if (currentSeeds <= 0) throw new Error("Saldo de semillas insuficiente.");
-
-    const activeTribe = (tribeName || "nómadas").trim();
-    const userRef = doc(db, "users", user.uid);
-    const tribeRef = doc(db, "tribes", activeTribe);
-
-    try {
-      await updateDoc(userRef, {
-        seeds: increment(-1),
-        trees: increment(1),
-        score: increment(10),
-        lastUpdate: Date.now() 
-      });
-
-      await setDoc(tribeRef, {
-        score: increment(10),
-        trees: increment(1),
-        lastActivity: serverTimestamp()
-      }, { merge: true });
-
-      await addDoc(collection(db, "activities"), {
-        userId: user.uid,
-        userName: userName || "Alguien",
-        tribeId: activeTribe,
-        type: 'plant',
-        text: 'ha plantado un nuevo árbol',
-        timestamp: serverTimestamp()
-      });
-
-      triggerSync(); 
-    } catch (error) {
-      console.error("Error al plantar:", error);
-      throw error;
-    }
+  const getTreeDocRef = (tribeName, index) => {
+    const safeIndex = Math.max(0, index);
+    const treeId = `tree_${String(safeIndex).padStart(6, '0')}`;
+    return doc(db, 'tribes', tribeName, 'trees', treeId);
   };
 
-  // 2. REGAR EL BOSQUE
-  const waterForest = async (currentDrops, tribeName, userName) => {
-    const user = auth.currentUser;
-    if (!user) throw new Error("Debes iniciar sesión");
-    if (currentDrops < 5) throw new Error("Necesitas al menos 5 gotas.");
 
-    const activeTribe = (tribeName || "nómadas").trim();
-    const userRef = doc(db, "users", user.uid);
-    const tribeRef = doc(db, "tribes", activeTribe);
+
+  // 1. PLANTAR UN ÁRBOL (modelo híbrido: agregados + árbol individual)
+  const plantTree = async (currentSeeds, tribeName, userName) => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Debes iniciar sesión');
+    if (currentSeeds <= 0) throw new Error('Saldo de semillas insuficiente.');
+
+    const activeTribe = (tribeName || 'nómadas').trim();
+    const userRef = doc(db, 'users', user.uid);
+    const tribeRef = doc(db, 'tribes', activeTribe);
+    const activityRef = doc(collection(db, 'activities'));
 
     try {
-      await updateDoc(userRef, {
-        drops: increment(-5),
-        forestLevel: increment(1),
-        score: increment(25),
-        lastUpdate: Date.now()
-      });
+      await runTransaction(db, async (transaction) => {
+        const userSnap = await transaction.get(userRef);
+        if (!userSnap.exists()) throw new Error('No se encontró tu perfil de usuario.');
 
-      // MODIFICACIÓN: Añadimos 'water: increment(5)' para rastrear el riego total de la tribu
-      await setDoc(tribeRef, {
-        score: increment(25),
-        water: increment(5), // <--- CAMBIO CLAVE PARA EL BOSQUE DETERMINISTA
-        lastActivity: serverTimestamp()
-      }, { merge: true });
+        const serverSeeds = Number(userSnap.data().seeds || 0);
+        if (serverSeeds <= 0) throw new Error('Saldo de semillas insuficiente.');
 
-      await addDoc(collection(db, "activities"), {
-        userId: user.uid,
-        userName: userName || "Alguien",
-        tribeId: activeTribe,
-        type: 'water',
-        text: 'ha regado el bosque (+25 pts)',
-        timestamp: serverTimestamp()
+        const tribeSnap = await transaction.get(tribeRef);
+        const currentTrees = tribeSnap.exists() ? Number(tribeSnap.data().trees || 0) : 0;
+        const nextTreeIndex = currentTrees;
+        const treeRef = getTreeDocRef(activeTribe, nextTreeIndex);
+
+        transaction.update(userRef, {
+          seeds: increment(-1),
+          trees: increment(1),
+          score: increment(10),
+          lastUpdate: Date.now()
+        });
+
+        transaction.set(tribeRef, {
+          score: increment(10),
+          trees: increment(1),
+          nextTreeIndex: tribeSnap.exists() ? Number(tribeSnap.data().nextTreeIndex || 0) : 0,
+          lastActivity: serverTimestamp()
+        }, { merge: true });
+
+        transaction.set(treeRef, {
+          index: nextTreeIndex,
+          level: 1,
+          plantedBy: user.uid,
+          plantedByName: userName || 'Alguien',
+          tribeId: activeTribe,
+          createdAt: serverTimestamp(),
+          lastWateredAt: null
+        }, { merge: true });
+
+        transaction.set(activityRef, {
+          userId: user.uid,
+          userName: userName || 'Alguien',
+          tribeId: activeTribe,
+          type: 'plant',
+          text: 'ha plantado un nuevo árbol',
+          timestamp: serverTimestamp()
+        });
       });
 
       triggerSync();
     } catch (error) {
-      console.error("Error al regar:", error);
+      if (error?.code === 'permission-denied') {
+        // Fallback temporal: si aún no están abiertas las reglas de /tribes/{id}/trees,
+        // mantenemos la experiencia funcional con el modelo agregado.
+        try {
+          await runTransaction(db, async (transaction) => {
+            const userSnap = await transaction.get(userRef);
+            if (!userSnap.exists()) throw new Error('No se encontró tu perfil de usuario.');
+
+            const serverSeeds = Number(userSnap.data().seeds || 0);
+            if (serverSeeds <= 0) throw new Error('Saldo de semillas insuficiente.');
+
+            transaction.update(userRef, {
+              seeds: increment(-1),
+              trees: increment(1),
+              score: increment(10),
+              lastUpdate: Date.now()
+            });
+
+            transaction.set(tribeRef, {
+              score: increment(10),
+              trees: increment(1),
+              lastActivity: serverTimestamp()
+            }, { merge: true });
+
+            transaction.set(activityRef, {
+              userId: user.uid,
+              userName: userName || 'Alguien',
+              tribeId: activeTribe,
+              type: 'plant',
+              text: 'ha plantado un nuevo árbol',
+              timestamp: serverTimestamp()
+            });
+          });
+
+          triggerSync();
+          return;
+        } catch (fallbackError) {
+          console.error('Error en fallback al plantar:', fallbackError);
+          throw fallbackError;
+        }
+      }
+
+      console.error('Error al plantar:', error);
+      throw error;
+    }
+  };
+
+  // 2. REGAR EL BOSQUE (modelo híbrido: agregados + nivel por árbol)
+  const waterForest = async (currentDrops, tribeName, userName) => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Debes iniciar sesión');
+    if (currentDrops < 5) throw new Error('Necesitas al menos 5 gotas.');
+
+    const activeTribe = (tribeName || 'nómadas').trim();
+    const userRef = doc(db, 'users', user.uid);
+    const tribeRef = doc(db, 'tribes', activeTribe);
+    const activityRef = doc(collection(db, 'activities'));
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const userSnap = await transaction.get(userRef);
+        if (!userSnap.exists()) throw new Error('No se encontró tu perfil de usuario.');
+
+        const serverDrops = Number(userSnap.data().drops || 0);
+        if (serverDrops < 5) throw new Error('Necesitas al menos 5 gotas.');
+
+        const tribeSnap = await transaction.get(tribeRef);
+        const treeCount = tribeSnap.exists() ? Number(tribeSnap.data().trees || 0) : 0;
+        if (treeCount <= 0) throw new Error('No hay árboles para regar todavía.');
+
+        const aggregateWater = tribeSnap.exists() ? Number(tribeSnap.data().water || 0) : 0;
+        const maxWaterCapacity = treeCount * (MAX_TREE_LEVEL - 1);
+        if (aggregateWater >= maxWaterCapacity) {
+          throw new Error('Tus árboles han llegado al nivel máximo. Planta nuevas semillas para seguir creciendo.');
+        }
+
+        const startIndex = tribeSnap.exists() ? Number(tribeSnap.data().nextTreeIndex || 0) : 0;
+        const treeRefs = Array.from({ length: treeCount }, (_, i) => getTreeDocRef(activeTribe, i));
+        const treeSnaps = await Promise.all(treeRefs.map((ref) => transaction.get(ref)));
+        const levelsByIndex = treeSnaps.map((snap) => Number(snap.data()?.level || 1));
+        const remainingCapacity = levelsByIndex.reduce((acc, lvl) => acc + Math.max(0, MAX_TREE_LEVEL - lvl), 0);
+
+        if (remainingCapacity < 5) {
+          throw new Error('Tus árboles están casi al máximo. Planta nuevas semillas para subir al siguiente nivel del bosque.');
+        }
+
+        transaction.update(userRef, {
+          drops: increment(-5),
+          score: increment(25),
+          lastUpdate: Date.now()
+        });
+
+        let pointer = startIndex;
+        for (let watered = 0; watered < 5; watered += 1) {
+          let attempts = 0;
+          while (levelsByIndex[pointer] >= MAX_TREE_LEVEL && attempts < treeCount) {
+            pointer = (pointer + 1) % treeCount;
+            attempts += 1;
+          }
+
+          if (attempts >= treeCount) {
+            throw new Error('No quedan árboles con capacidad de crecimiento.');
+          }
+
+          const treeIndex = pointer;
+          const treeRef = treeRefs[treeIndex];
+          levelsByIndex[treeIndex] += 1;
+
+          transaction.set(treeRef, {
+            index: treeIndex,
+            level: increment(1),
+            lastWateredAt: serverTimestamp(),
+            lastWateredBy: user.uid,
+            lastWateredByName: userName || 'Alguien'
+          }, { merge: true });
+
+          pointer = (treeIndex + 1) % treeCount;
+        }
+
+        transaction.set(tribeRef, {
+          score: increment(25),
+          water: increment(5),
+          nextTreeIndex: pointer,
+          lastActivity: serverTimestamp()
+        }, { merge: true });
+
+        transaction.set(activityRef, {
+          userId: user.uid,
+          userName: userName || 'Alguien',
+          tribeId: activeTribe,
+          type: 'water',
+          text: 'ha regado el bosque (+25 pts)',
+          timestamp: serverTimestamp()
+        });
+      });
+
+      triggerSync();
+    } catch (error) {
+      if (error?.code === 'permission-denied') {
+        try {
+          await runTransaction(db, async (transaction) => {
+            const userSnap = await transaction.get(userRef);
+            if (!userSnap.exists()) throw new Error('No se encontró tu perfil de usuario.');
+
+            const serverDrops = Number(userSnap.data().drops || 0);
+            if (serverDrops < 5) throw new Error('Necesitas al menos 5 gotas.');
+
+            const tribeSnap = await transaction.get(tribeRef);
+            const treeCount = tribeSnap.exists() ? Number(tribeSnap.data().trees || 0) : 0;
+            const aggregateWater = tribeSnap.exists() ? Number(tribeSnap.data().water || 0) : 0;
+            const maxWaterCapacity = treeCount * (MAX_TREE_LEVEL - 1);
+            if (treeCount <= 0 || aggregateWater >= maxWaterCapacity) {
+              throw new Error('Tus árboles han llegado al límite. Planta nuevas semillas para seguir creciendo.');
+            }
+
+            transaction.update(userRef, {
+              drops: increment(-5),
+              score: increment(25),
+              lastUpdate: Date.now()
+            });
+
+            transaction.set(tribeRef, {
+              score: increment(25),
+              water: increment(5),
+              lastActivity: serverTimestamp()
+            }, { merge: true });
+
+            transaction.set(activityRef, {
+              userId: user.uid,
+              userName: userName || 'Alguien',
+              tribeId: activeTribe,
+              type: 'water',
+              text: 'ha regado el bosque (+25 pts)',
+              timestamp: serverTimestamp()
+            });
+          });
+
+          triggerSync();
+          return;
+        } catch (fallbackError) {
+          console.error('Error en fallback al regar:', fallbackError);
+          throw fallbackError;
+        }
+      }
+
+      console.error('Error al regar:', error);
       throw error;
     }
   };
@@ -93,7 +271,7 @@ export const useGameEngine = () => {
     const user = auth.currentUser;
     if (!user || !lastUpdateTimestamp) return 0;
 
-    const userRef = doc(db, "users", user.uid);
+    const userRef = doc(db, 'users', user.uid);
     const now = new Date();
     const lastUpdate = lastUpdateTimestamp.toDate ? lastUpdateTimestamp.toDate() : new Date(lastUpdateTimestamp);
     const diffInMs = now - lastUpdate;
@@ -109,7 +287,7 @@ export const useGameEngine = () => {
         triggerSync();
         return earnedDrops;
       } catch (error) {
-        console.error("Error al reclamar gotas pasivas:", error);
+        console.error('Error al reclamar gotas pasivas:', error);
       }
     }
     return 0;
@@ -118,8 +296,8 @@ export const useGameEngine = () => {
   // 4. RESETEAR VALORES
   const resetStats = async () => {
     const user = auth.currentUser;
-    if (!user) throw new Error("No hay usuario autenticado");
-    const userRef = doc(db, "users", user.uid);
+    if (!user) throw new Error('No hay usuario autenticado');
+    const userRef = doc(db, 'users', user.uid);
 
     try {
       await updateDoc(userRef, {
@@ -132,7 +310,7 @@ export const useGameEngine = () => {
       });
       triggerSync();
     } catch (error) {
-      console.error("Error al resetear stats:", error);
+      console.error('Error al resetear stats:', error);
       throw error;
     }
   };
